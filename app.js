@@ -873,49 +873,17 @@ if (method === 'domicilio') {
   const waUrl = `https://wa.me/${bp}?text=${msg}`;
 
 
-// 🔒 Bloquear botón para evitar doble envío
-submitBtn.disabled = true;
-submitBtn.textContent = 'Enviando pedido...';
+// 📲 ABRIR WHATSAPP INMEDIATAMENTE (FUNCIONA EN CELULAR)
+window.location.href = waUrl;
 
-// Mostrar aviso antes de enviar
-Swal.fire({
-  icon: 'success',
-  title: 'Envía tu comprobante',
-  text: 'Recuerda enviar el comprobante de pago a nuestro WhatsApp para confirmar tu pedido. Si es en efectivo haz caso omiso a este mensaje.',
-  showConfirmButton: false,
-  timer: 2000,
-  background: '#ffffff',
-  color: '#000000',
-  iconColor: '#e91e63'
-}).then(() => {
+// 🧹 Vaciar carrito
+cart = [];
+persistCart();
+refreshCartUI();
+localStorage.removeItem('tb_cart');
 
-  // 📲 Abrir WhatsApp
-   // 🟢 1. REDIRECCIONAR INMEDIATAMENTE (NO BLOQUEABLE)
-  window.location.href = waUrl;
-
-  // 🧹 Vaciar carrito
-  cart = [];
-  persistCart();
-  refreshCartUI();
-
-  
-  localStorage.removeItem('tb_cart');
-
-  // Cerrar modal checkout
-  checkoutModal.classList.add('hidden');
-
-  // ✅ Mensaje final
-  Swal.fire({
-    icon: 'success',
-    title: 'Pedido enviado correctamente',
-    text: 'Tu pedido fue enviado por WhatsApp. Te responderemos pronto.',
-    confirmButtonColor: '#e91e63'
-  });
-
-  // 🔓 Reactivar botón por seguridad
-  submitBtn.disabled = false;
-  submitBtn.textContent = 'Confirmar pedido';
-});
+// Cerrar modal checkout
+checkoutModal.classList.add('hidden');
 
 });
 
@@ -1255,6 +1223,7 @@ function showCartHintToast() {
 
 
 // ============Fin de codigo de Descarga QR=================
+
 
 
 
