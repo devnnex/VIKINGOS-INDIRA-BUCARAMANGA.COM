@@ -890,7 +890,8 @@ Swal.fire({
 }).then(() => {
 
   // 📲 Abrir WhatsApp
-  window.open(waUrl, '_blank');
+   // 🟢 1. REDIRECCIONAR INMEDIATAMENTE (NO BLOQUEABLE)
+  window.location.href = waUrl;
 
   // 🧹 Vaciar carrito
   cart = [];
@@ -1254,6 +1255,7 @@ function showCartHintToast() {
 
 
 // ============Fin de codigo de Descarga QR=================
+
 
 
 
