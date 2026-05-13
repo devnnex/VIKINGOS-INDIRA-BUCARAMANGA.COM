@@ -43,7 +43,8 @@ const products = [
 const categories = [...new Set(products.map(p=>p.category))];
 
 // ---------- Estado ----------
-let cart = JSON.parse(localStorage.getItem('tb_cart') || '[]');
+localStorage.removeItem('tb_cart');
+let cart = [];
 let activeCategory = 'Vikingos';
 
 // ---------- DOM refs ----------
@@ -98,12 +99,12 @@ function resetClientForm() {
   });
 
   // Opcional: dejar valores por defecto (pro UX)
-  const recoger = form.querySelector('input[value="recoger"]');
-  if (recoger) recoger.checked = true;
+  const domicilio = form.querySelector('input[value="domicilio"]');
+  if (domicilio) domicilio.checked = true;
 
   // Ocultar campos dinámicos
-  document.getElementById('address-label')?.classList.add('hidden');
-  document.getElementById('envio-row')?.classList.add('hidden');
+  document.getElementById('address-label')?.classList.remove('hidden');
+  document.getElementById('envio-row')?.classList.remove('hidden');
 }
 
 init();
@@ -759,8 +760,9 @@ const subtotal = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
 
   // 🔹 Reset formulario
   checkoutForm.reset();
-  document.getElementById('address-label').classList.add('hidden');
-  document.getElementById('envio-row').classList.add('hidden');
+  checkoutForm.querySelector('input[value="domicilio"]').checked = true;
+  document.getElementById('address-label').classList.remove('hidden');
+  document.getElementById('envio-row').classList.remove('hidden');
 
   // 🔹 Mostrar modal
   checkoutModal.classList.remove('hidden');
@@ -770,7 +772,7 @@ const subtotal = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
   const radios = checkoutForm.querySelectorAll('input[name="method"]');
   radios.forEach(radio => {
     radio.addEventListener('change', () => {
-      const method = checkoutForm.querySelector('input[name="method"]:checked')?.value || 'recoger';
+      const method = checkoutForm.querySelector('input[name="method"]:checked')?.value || 'domicilio';
       const addressLabel = document.getElementById('address-label');
       const envioRow = document.getElementById('envio-row');
       const deliveryEl = document.getElementById('cart-delivery');
@@ -804,7 +806,7 @@ backToCartBtn.addEventListener('click', () => {
 
 // === Calcular totales del checkout ===
 function updateCheckoutTotals() {
-  const method = checkoutForm.querySelector('input[name="method"]:checked')?.value || 'recoger';
+  const method = checkoutForm.querySelector('input[name="method"]:checked')?.value || 'domicilio';
   const envioRow = document.getElementById('envio-row');
   const subtotalEl = document.getElementById('cart-subtotal-checkout');
   const deliveryEl = document.getElementById('cart-delivery-checkout');
@@ -850,7 +852,7 @@ checkoutForm.addEventListener('submit', (e) => {
   const fd = new FormData(checkoutForm);
   const clientName = fd.get('name')?.trim() || '';
   const clientPhone = fd.get('phone')?.trim() || '';
-  const method = fd.get('method') || 'recoger';
+  const method = fd.get('method') || 'domicilio';
   const payment = fd.get('payment') || '';
   const address = fd.get('address')?.trim() || '';
   const notes = fd.get('notes')?.trim() || '';
