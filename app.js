@@ -26,6 +26,7 @@ const products = [
   { id: 'vvik-pina', category: 'Vikingos', title: 'Vikingo de Piña', price: 4500, desc: 'Refrescante sabor tropical de piña natural a base de leche.', image: 'images/vik-pina.png' },
   { id: 'vvik-galleta', category: 'Vikingos', title: 'Vikingo de Galleta', price: 4500, desc: 'Refrescante y delicioso con trocitos de galleta tipo rondalla a base de leche', image: 'images/vik-galleta.png' },
   { id: 'vvik-banano', category: 'Vikingos', title: 'Vikingo de Banano', price: 4500, desc: 'Cremoso y delicioso a base de leche con trozo de banano', image: 'images/vik-banano.png' },
+  { id: 'vvik-sandia', category: 'Vikingos', title: 'Vikingo de Sandia', price: 4500, desc: 'Refrescante vikingo a base de agua con fruta natural', image: 'images/vik-sandia.png' },
   { id: 'vvik-kola', category: 'Vikingos', title: 'Vikingo Kola con Leche', price: 4500, desc: 'Clásico sabor colombiano a base de leche.', image: 'images/vik-kola.png' },
   { id: 'vvik-milo', category: 'Vikingos', title: 'Vikingo de Milo', price: 4500, desc: 'Cremoso vikingo con trocitos de milo crocante 100% natural a base de leche', image: 'images/vik-milo.png' },
   { id: 'vvik-vainillachips', category: 'Vikingos', title: 'Vikingo Vainilla Chips', price: 4500, desc: 'Delicado sabor a vainilla con chispas de chocolate 100% natural a base de leche.', image: 'images/vik-vainillachips.png' },
