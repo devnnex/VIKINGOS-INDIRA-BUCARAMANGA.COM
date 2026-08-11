@@ -3,8 +3,6 @@
 // ---------- Config ----------
 const BUSINESS_PHONE = '573114480390'; // <- reemplaza por el número real (sin '+')
 const DELIVERY_FEE = 0; // tarifa por defecto de domicilio
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzSrz86O4JYSkrWBkKVBjXK3J3Q_eaeKuMPJN2KFDLnXP67u4X1P7V7dI32Cj0LzNm7gA/exec';
-const AVAILABILITY_POLL_MS = 500;
 
 // ---------- Datos de ejemplo ----------
 const products = [
@@ -73,147 +71,17 @@ const checkoutClose = document.getElementById('checkout-close');
 const backToCartBtn = document.getElementById('back-to-cart');
 const clearCartBtn = document.getElementById('clear-cart');
 const searchInput = document.getElementById('search');
-const availabilityLoader = document.getElementById('availability-loader');
-let checkoutRadioEventsBound = false;
-let soldOutModalOpen = false;
-let availabilityFetchInFlight = false;
-
-function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function hideAvailabilityLoader() {
-  if (!availabilityLoader) return;
-  availabilityLoader.classList.add('is-hidden');
-  setTimeout(() => availabilityLoader.remove(), 420);
-}
-
-function parseAvailabilityList(data) {
-  const status = {};
-  if (!Array.isArray(data)) return status;
-
-  data.forEach(item => {
-    const id = item?.id ? String(item.id).trim() : '';
-    if (!id) return;
-    status[id] = String(item.disponible).toLowerCase() === 'true' || item.disponible === true;
-  });
-
-  return status;
-}
-
-function readCachedAvailability() {
-  try {
-    return JSON.parse(localStorage.getItem('productStatus')) || {};
-  } catch (err) {
-    return {};
-  }
-}
-
-function mergeAvailabilityStatus(prevStatus, nextStatus) {
-  const merged = { ...(prevStatus || {}) };
-
-  Object.keys(nextStatus || {}).forEach(id => {
-    merged[id] = Boolean(nextStatus[id]);
-  });
-
-  return merged;
-}
-
-async function getAvailabilityStatus() {
-  try {
-    const res = await fetch(SCRIPT_URL + '?t=' + Date.now());
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const fetchedStatus = parseAvailabilityList(data);
-    const cachedStatus = readCachedAvailability();
-
-    if (Object.keys(fetchedStatus).length === 0) {
-      return cachedStatus;
-    }
-
-    const status = mergeAvailabilityStatus(cachedStatus, fetchedStatus);
-    localStorage.setItem('productStatus', JSON.stringify(status));
-    return status;
-  } catch (err) {
-    console.warn('Disponibilidad: usando cache local', err);
-    return readCachedAvailability();
-  }
-}
-
-function isProductAvailable(productId, status = readCachedAvailability()) {
-  return status[productId] === undefined ? true : Boolean(status[productId]);
-}
-
-function showSoldOutProductModal(product, removedQty = 0) {
-  if (!product || soldOutModalOpen) return;
-  soldOutModalOpen = true;
-
-  const message = removedQty > 0
-    ? `Quitamos ${removedQty} del carrito porque este sabor esta agotado. Elige otro sabor.`
-    : 'Este sabor esta agotado. Elige otro sabor.';
-
-  if (typeof Swal !== 'undefined') {
-    Swal.fire({
-      icon: 'warning',
-      title: 'Sabor agotado',
-      text: message,
-      imageUrl: product.image,
-      imageAlt: product.title,
-      imageWidth: 140,
-      imageHeight: 140,
-      confirmButtonText: 'Elegir otro',
-      background: '#ffffff',
-      color: '#000000',
-      iconColor: '#e91e63',
-      confirmButtonColor: '#e91e63'
-    }).finally(() => {
-      soldOutModalOpen = false;
-    });
-  } else {
-    alert(`${product.title}\n${message}`);
-    soldOutModalOpen = false;
-  }
-}
-
-function removeUnavailableCartItems(status, showAlert = true) {
-  if (!cart.length) return true;
-
-  const removedByProduct = new Map();
-  cart = cart.filter(item => {
-    if (isProductAvailable(item.productId, status)) return true;
-    const current = removedByProduct.get(item.productId) || { qty: 0, item };
-    current.qty += item.qty;
-    removedByProduct.set(item.productId, current);
-    return false;
-  });
-
-  if (!removedByProduct.size) return true;
-
-  persistCart();
-  refreshCartUI();
-
-  if (showAlert) {
-    const firstRemoved = Array.from(removedByProduct.values())[0];
-    const product = products.find(p => p.id === firstRemoved.item.productId) || firstRemoved.item;
-    showSoldOutProductModal(product, firstRemoved.qty);
-  }
-
-  return false;
-}
 
 // ---------- Init ----------
 function init(){
   resetClientForm(); // 👈 AQUI
   renderCategories();
+  setActiveCategory(activeCategory);
   bindEvents();
   refreshCartUI();
-  setActiveCategory(activeCategory);
-  const availabilityPromise = fetchAvailability();
-  updateCheckoutFieldStates();
-  Promise.race([Promise.resolve(availabilityPromise), delay(4500)])
-    .finally(() => hideAvailabilityLoader());
+  renderProducts(activeCategory);
+  applyAvailabilityToRendered(); // ✅ justo después del render
 }
-
 
 function resetClientForm() {
   const form = document.getElementById('checkout-form');
@@ -238,8 +106,6 @@ function resetClientForm() {
   // Ocultar campos dinámicos
   document.getElementById('address-label')?.classList.remove('hidden');
   document.getElementById('envio-row')?.classList.remove('hidden');
-  updateCheckoutTotals();
-  updateCheckoutFieldStates();
 }
 
 init();
@@ -280,7 +146,7 @@ function setActiveCategory(cat){
   activeCategory = cat;
   Array.from(document.querySelectorAll('.categories button')).forEach(b=> b.classList.toggle('active', b.dataset.cat === cat));
   Array.from(navBtns).forEach(b=> b.classList.toggle('active', b.dataset.cat === cat));
-  return renderProducts(cat);
+  renderProducts(cat);
 }
 
 function switchCategory(cat){
@@ -291,7 +157,7 @@ function switchCategory(cat){
     setActiveCategory(cat);
     ct.classList.remove('fade-out');
     ct.classList.add('fade-in');
-  }, 45);
+  }, 180);
 }
 // ---------- Render productos ----------
 function renderProducts(cat) { 
@@ -305,7 +171,7 @@ function renderProducts(cat) {
 
   if (items.length === 0) {
     catalogEl.innerHTML = `<div class="no-results">No hay productos</div>`;
-    return Promise.resolve();
+    return;
   }
 
   items.forEach(p => {
@@ -326,21 +192,33 @@ function renderProducts(cat) {
   });
 
   // después de crear las cards, aplicamos disponibilidad y bind de eventos
-  return applyAvailabilityToRendered();
+  applyAvailabilityToRendered();
 }
 
 
 // ====== 🔄 SINCRONIZACIÓN DE DISPONIBILIDAD CON GOOGLE SHEETS ======
 
-// SCRIPT_URL es el mismo endpoint que usas en el admin.
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzSrz86O4JYSkrWBkKVBjXK3J3Q_eaeKuMPJN2KFDLnXP67u4X1P7V7dI32Cj0LzNm7gA/exec'; 
+// 👆 el mismo que usas en el admin
 
 async function fetchAvailability() {
-  if (availabilityFetchInFlight) return readCachedAvailability();
-  availabilityFetchInFlight = true;
-
   try {
-    const prevStatus = readCachedAvailability();
-    const status = await getAvailabilityStatus();
+    const res = await fetch(SCRIPT_URL + '?t=' + Date.now()); 
+    // 👆 se agrega un timestamp para evitar que el navegador cachee la respuesta
+
+    // Verificar que la respuesta sea correcta
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    // Convertir la data del sheet en un objeto { id: boolean }
+    const status = {};
+    data.forEach(item => {
+      // Aseguramos compatibilidad: TRUE/FALSE, true/false, "TRUE"/"FALSE"
+      status[item.id] = item.disponible === true || item.disponible === 'TRUE';
+    });
+
+    // Leer el estado anterior del localStorage
+    const prevStatus = JSON.parse(localStorage.getItem('productStatus')) || {};
 
     // Comparar para no refrescar la UI sin necesidad
     if (JSON.stringify(prevStatus) !== JSON.stringify(status)) {
@@ -348,31 +226,44 @@ async function fetchAvailability() {
 
       // 🔥 Reaplica visualmente la disponibilidad actualizada
       if (typeof applyAvailabilityToRendered === 'function') {
-        applyAvailabilityToRendered(null, status);
+        applyAvailabilityToRendered();
       }
 
       console.log('🔁 Estado actualizado desde Google Sheets');
     }
 
-    removeUnavailableCartItems(status, true);
-    return status;
   } catch (err) {
     console.error('❌ Error al obtener disponibilidad:', err);
-    return readCachedAvailability();
-  } finally {
-    availabilityFetchInFlight = false;
   }
 }
 
-// Mantiene el estado de "Agotado" casi en vivo sin bloquear los clicks del cliente.
-setInterval(fetchAvailability, AVAILABILITY_POLL_MS);
+// Ejecutar al cargar la página
+fetchAvailability();
+
+// Y volver a consultar cada 5 segundos
+setInterval(fetchAvailability, 500);
 
 
 
 
 // lee estados guardados y aplica cambios solo al botón del producto correspondiente
-function applyAvailabilityToRendered(productId = null, status = readCachedAvailability()) {
-  removeUnavailableCartItems(status, true);
+async function applyAvailabilityToRendered(productId = null) {
+  // intentar leer desde Google Sheets primero
+  let status = {};
+  try {
+    const res = await fetch(SCRIPT_URL + '?t=' + Date.now());
+    const data = await res.json(); // array [{id, disponible}, ...] o similar
+    data.forEach(item => {
+      // robusto: acepta true/false o "TRUE"/"FALSE"
+      status[item.id] = String(item.disponible).toLowerCase() === 'true' || item.disponible === true;
+    });
+    // actualizar cache local para fallback
+    localStorage.setItem('productStatus', JSON.stringify(status));
+  } catch (err) {
+    // si falla la red, usar localStorage como fallback
+    status = JSON.parse(localStorage.getItem('productStatus')) || {};
+    console.warn('fetchAvailability fallback to localStorage', err);
+  }
 
   // Si se pide solo un producto, actualiza solo ese
   const cards = productId 
@@ -386,12 +277,7 @@ function applyAvailabilityToRendered(productId = null, status = readCachedAvaila
     const addBtn = card.querySelector('.add');
     if (!addBtn) return;
 
-    const cachedStatus = readCachedAvailability();
-    const previousValue = cachedStatus[id];
-    const nextValue = status[id];
-    const disponible = nextValue === undefined
-      ? previousValue !== false
-      : Boolean(nextValue);
+    const disponible = status[id] === undefined ? true : Boolean(status[id]);
 
     // Reset visual
     addBtn.disabled = false;
@@ -497,15 +383,6 @@ async function applyExtrasAvailability(modalEl = document) {
 function openProductModal(id, cartIndex = null) {
   const p = products.find(x => x.id === id);
   if (!p) return;
-  if (!isProductAvailable(id)) {
-    if (cartIndex !== null) {
-      cart.splice(cartIndex, 1);
-      persistCart();
-      refreshCartUI();
-    }
-    showSoldOutProductModal(p, cartIndex !== null ? 1 : 0);
-    return;
-  }
 
   // === CREAR OVERLAY ===
   const overlay = document.createElement("div");
@@ -567,7 +444,7 @@ function openProductModal(id, cartIndex = null) {
   applyExtrasAvailability(overlay)
     .then(() => console.log("🟢 Disponibilidad de extras aplicada"))
     .catch(err => console.warn("⚠️ Error al aplicar extras:", err));
-}, 0);
+}, 150);
  // ✅ aplicar disponibilidad de extras
 
   
@@ -630,19 +507,6 @@ function openProductModal(id, cartIndex = null) {
 
   // === AGREGAR O ACTUALIZAR EN EL CARRITO ===
   overlay.querySelector(".add-btn").addEventListener("click", () => {
-    const status = readCachedAvailability();
-    if (!isProductAvailable(p.id, status)) {
-      if (cartIndex !== null) {
-        cart.splice(cartIndex, 1);
-        persistCart();
-        refreshCartUI();
-      }
-      overlay.remove();
-      applyAvailabilityToRendered(p.id, status);
-      showSoldOutProductModal(p, cartIndex !== null ? qty : 0);
-      return;
-    }
-
     const extras = (p.extras || []).map((e, i) => ({ name: e.name, price: e.price, qty: extrasQty[i] })).filter(e => e.qty > 0);
     const extrasSum = extras.reduce((a, e) => a + e.price * e.qty, 0);
     const finalUnitPrice = p.price + extrasSum;
@@ -770,9 +634,7 @@ function refreshCartUI() {
       </div>
       <div class="price">
         <span>$${numberWithCommas(itemTotal)}</span>
-        <button class="remove-btn" type="button" title="Eliminar producto" aria-label="Eliminar ${escapeHtml(item.title)}">
-          <span aria-hidden="true"></span>
-        </button>
+        <button class="remove-btn" title="Eliminar producto">🗑️</button>
       </div>
     `;
 
@@ -827,7 +689,7 @@ function refreshCartUI() {
 
     // --- EDITAR PRODUCTO DESDE EL CARRITO ---
     div.addEventListener('click', (e) => {
-      if (!e.target.closest('.minus, .plus, .remove-btn')) {
+      if (!e.target.classList.contains('minus') && !e.target.classList.contains('plus') && !e.target.classList.contains('remove-btn')) {
         cartDrawer.classList.add('hidden'); // esconder carrito
         openProductModal(item.productId, idx); // enviar índice para edición
       }
@@ -869,9 +731,6 @@ clearCartBtn.addEventListener('click', ()=>{ if(confirm('Vaciar carrito?')){ car
 
 // ---------- Checkout ----------
 function openCheckout() {
- const status = readCachedAvailability();
- if (!removeUnavailableCartItems(status, true)) return;
-
  if (cart.length === 0) {
     Swal.fire({
         icon: 'warning',
@@ -902,20 +761,37 @@ const subtotal = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
 
   // 🔹 Reset formulario
   checkoutForm.reset();
-  const domicilio = checkoutForm.querySelector('input[value="domicilio"]');
-  if (domicilio) domicilio.checked = true;
-  if (typeof step1 !== 'undefined' && step1 && step2) {
-    step1.classList.add('active');
-    step2.classList.remove('active');
-  }
+  checkoutForm.querySelector('input[value="domicilio"]').checked = true;
   document.getElementById('address-label').classList.remove('hidden');
   document.getElementById('envio-row').classList.remove('hidden');
-  updateCheckoutTotals();
-  updateCheckoutFieldStates();
 
   // 🔹 Mostrar modal
   checkoutModal.classList.remove('hidden');
   checkoutModal.setAttribute('aria-hidden', 'false');
+
+  // 🔹 Recalcular al cambiar método (recoger/domicilio)
+  const radios = checkoutForm.querySelectorAll('input[name="method"]');
+  radios.forEach(radio => {
+    radio.addEventListener('change', () => {
+      const method = checkoutForm.querySelector('input[name="method"]:checked')?.value || 'domicilio';
+      const addressLabel = document.getElementById('address-label');
+      const envioRow = document.getElementById('envio-row');
+      const deliveryEl = document.getElementById('cart-delivery');
+      const totalCheckoutEl = document.getElementById('cart-total-checkout');
+
+      const DELIVERY_FEE = 0;
+      const delivery = (method === 'domicilio' && subtotal > 0) ? DELIVERY_FEE : 0;
+      const totalUpdated = subtotal + delivery;
+
+      // Mostrar/ocultar campos
+      addressLabel.classList.toggle('hidden', method !== 'domicilio');
+      envioRow.classList.toggle('hidden', method !== 'domicilio');
+
+      // Actualizar montos
+      deliveryEl.textContent = `$${numberWithCommas(delivery)}`;
+      totalCheckoutEl.textContent = `$${numberWithCommas(totalUpdated)}`;
+    });
+  });
 }
 
 
@@ -931,19 +807,16 @@ backToCartBtn.addEventListener('click', () => {
 
 // === Calcular totales del checkout ===
 function updateCheckoutTotals() {
-  const method = checkoutForm.querySelector('input[name="method"]:checked')?.value || 'recoger';
+  const method = checkoutForm.querySelector('input[name="method"]:checked')?.value || 'domicilio';
   const envioRow = document.getElementById('envio-row');
   const subtotalEl = document.getElementById('cart-subtotal-checkout');
   const deliveryEl = document.getElementById('cart-delivery-checkout');
   const totalEl = document.getElementById('cart-total-checkout');
-  const cartDeliveryElInline = document.getElementById('cart-delivery');
 
   const DELIVERY_FEE = 0; // mismo valor usado en refreshCartUI
 
   // Mostrar u ocultar campo de dirección
-  addressLabel?.classList.toggle('hidden', method !== 'domicilio');
-  const addressInput = checkoutForm.querySelector('[name="address"]');
-  if (addressInput) addressInput.required = method === 'domicilio';
+  addressLabel.classList.toggle('hidden', method !== 'domicilio');
 
   // 🧾 Heredamos los valores que ya calcula refreshCartUI()
   const subtotal = cart.reduce((acc, item) => acc + item.price * item.qty, 0);
@@ -953,231 +826,64 @@ function updateCheckoutTotals() {
   const total = subtotal + delivery;
 
   // Mostrar/ocultar fila de envío
-  envioRow?.classList.toggle('hidden', method !== 'domicilio');
+  envioRow.classList.toggle('hidden', method !== 'domicilio');
 
   // ✅ Actualizar DOM (heredado del refreshCartUI, con ajuste solo si hay envío)
-  if (subtotalEl) subtotalEl.textContent = `$${numberWithCommas(subtotal)}`;
-  if (deliveryEl) deliveryEl.textContent = `$${numberWithCommas(delivery)}`;
-  if (cartDeliveryElInline) cartDeliveryElInline.textContent = `$${numberWithCommas(delivery)}`;
-  if (totalEl) totalEl.textContent = `$${numberWithCommas(total)}`;
+  subtotalEl.textContent = document.getElementById('cart-subtotal').textContent;
+  deliveryEl.textContent = document.getElementById('cart-delivery').textContent;
+  totalEl.textContent = method === 'domicilio'
+    ? `$${numberWithCommas(total)}`
+    : document.getElementById('cart-total-checkout').textContent;
 }
 
 
-checkoutForm.addEventListener('change', () => {
-  updateCheckoutTotals();
-  updateCheckoutFieldStates();
-});
-checkoutForm.addEventListener('input', updateCheckoutFieldStates);
+checkoutForm.addEventListener('change', updateCheckoutTotals);
 
 
 
 
 
 
-function hasBarrio(address) {
-  const addressLower = String(address || '').toLowerCase();
-  return addressLower.includes('barrio') ||
-    addressLower.includes('barr.') ||
-    addressLower.includes('br.');
-}
-
-function setCheckoutFieldState(fieldName, state) {
-  const field = checkoutForm.querySelector(`.checkout-field[data-field="${fieldName}"]`);
-  if (!field) return;
-  field.classList.toggle('is-valid', state === 'valid');
-  field.classList.toggle('is-invalid', state === 'invalid');
-}
-
-function updateCheckoutFieldStates() {
-  if (!checkoutForm) return;
-
-  const fd = new FormData(checkoutForm);
-  const name = fd.get('name')?.trim() || '';
-  const phone = fd.get('phone')?.trim() || '';
-  const method = fd.get('method') || 'domicilio';
-  const payment = fd.get('payment') || '';
-  const address = fd.get('address')?.trim() || '';
-  const phoneDigits = phone.replace(/\D/g, '');
-
-  setCheckoutFieldState('name', name ? 'valid' : 'invalid');
-  setCheckoutFieldState('phone', phoneDigits.length === 10 ? 'valid' : 'invalid');
-  setCheckoutFieldState('address', method !== 'domicilio' || hasBarrio(address) ? 'valid' : 'invalid');
-  setCheckoutFieldState('payment', payment ? 'valid' : 'invalid');
-
-  const transferInfo = document.getElementById('transfer-info');
-  if (transferInfo) transferInfo.classList.toggle('hidden', payment !== 'transferencia');
-}
-
-function showCheckoutAlert(title, text) {
-  if (typeof Swal !== 'undefined') {
-    Swal.fire({
-      icon: 'warning',
-      title,
-      text,
-      background: '#ffffff',
-      color: '#000000',
-      iconColor: '#e91e63',
-      confirmButtonColor: '#e91e63'
-    });
-  } else {
-    alert(`${title}\n${text}`);
-  }
-}
-
-function focusCheckoutField(fieldName) {
-  const field = checkoutForm.querySelector(`.checkout-field[data-field="${fieldName}"]`);
-  const control = field?.querySelector('input, select, textarea');
-  if (control) setTimeout(() => control.focus({ preventScroll: false }), 80);
-}
-
-function goToCheckoutStep(stepNumber) {
-  if (!step1 || !step2) return;
-  step1.classList.toggle('active', stepNumber === 1);
-  step2.classList.toggle('active', stepNumber === 2);
-}
-
-function validateCheckoutForWhatsApp() {
-  const fd = new FormData(checkoutForm);
-  const clientName = fd.get('name')?.trim() || '';
-  const clientPhone = fd.get('phone')?.trim() || '';
-  const method = fd.get('method') || 'domicilio';
-  const payment = fd.get('payment') || '';
-  const address = fd.get('address')?.trim() || '';
-  const phoneDigits = clientPhone.replace(/\D/g, '');
-
-  updateCheckoutFieldStates();
-
-  if (cart.length === 0) {
-    return { ok: false, title: 'Carrito vacio', text: 'Debes agregar productos antes de confirmar el pedido.', step: 1 };
-  }
-  if (!clientName) {
-    return { ok: false, title: 'Falta tu nombre', text: 'Escribe tu nombre para poder identificar el pedido.', field: 'name', step: 1 };
-  }
-  if (phoneDigits.length !== 10) {
-    return { ok: false, title: 'Telefono invalido', text: 'Escribe un numero de telefono de 10 digitos. Puedes usar espacios o guiones si quieres.', field: 'phone', step: 1 };
-  }
-  if (method === 'domicilio' && !hasBarrio(address)) {
-    return {
-      ok: false,
-      title: 'Debes indicar el barrio',
-      text: 'Incluye la palabra Barrio en la direccion. Ejemplo: Calle 29 #55-80 Barrio Galan.',
-      field: 'address',
-      step: 2
-    };
-  }
-  if (!payment) {
-    return { ok: false, title: 'Selecciona el metodo de pago', text: 'Elige transferencia o efectivo antes de confirmar.', field: 'payment', step: 2 };
-  }
-
-  return { ok: true };
-}
-
-function clearCartAfterWhatsAppOpen() {
-  cart = [];
-  persistCart();
-  refreshCartUI();
-  localStorage.removeItem('tb_cart');
-  resetClientForm();
-}
-
-function openWhatsAppWithFallback(primaryUrl, fallbackUrl, submitBtn) {
-  let finished = false;
-
-  const markFinished = () => {
-    if (finished) return;
-    finished = true;
-    clearCartAfterWhatsAppOpen();
-  };
-
-  const restoreButton = () => {
-    if (!submitBtn || finished) return;
-    submitBtn.disabled = false;
-    submitBtn.textContent = 'Confirmar pedido';
-  };
-
-  window.addEventListener('pagehide', markFinished, { once: true });
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) markFinished();
-  }, { once: true });
-
-  try {
-    window.location.assign(primaryUrl);
-  } catch (err) {
-    console.warn('No se pudo abrir WhatsApp con navegacion directa', err);
-  }
-
-  setTimeout(() => {
-    if (document.hidden || finished) return;
-    restoreButton();
-    if (typeof Swal !== 'undefined') {
-      Swal.fire({
-        icon: 'info',
-        title: 'Abrir WhatsApp',
-        text: 'Si WhatsApp no se abrio automaticamente, toca el boton para continuar con el pedido.',
-        showCancelButton: true,
-        confirmButtonText: 'Abrir WhatsApp',
-        cancelButtonText: 'Seguir editando',
-        background: '#ffffff',
-        color: '#000000',
-        confirmButtonColor: '#e91e63',
-        cancelButtonColor: '#1ac892'
-      }).then(result => {
-        if (result.isConfirmed) {
-          markFinished();
-          window.location.href = fallbackUrl;
-        }
-      });
-    } else if (confirm('Si WhatsApp no se abrio automaticamente, pulsa Aceptar para intentarlo de nuevo.')) {
-      markFinished();
-      window.location.href = fallbackUrl;
-    }
-  }, 1400);
-}
-
+// Envío por WhatsApp
 checkoutForm.addEventListener('submit', (e) => {
   
   const submitBtn = checkoutForm.querySelector('button[type="submit"]');
   e.preventDefault();
 
-  const status = readCachedAvailability();
-  const cartIsStillAvailable = removeUnavailableCartItems(status, true);
-  if (!cartIsStillAvailable) {
-    if (submitBtn) {
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Confirmar pedido';
-    }
-    return;
-  }
-
-  const validation = validateCheckoutForWhatsApp();
-  if (!validation.ok) {
-    if (submitBtn) {
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Confirmar pedido';
-    }
-    if (validation.step) goToCheckoutStep(validation.step);
-    showCheckoutAlert(validation.title, validation.text);
-    if (validation.field) focusCheckoutField(validation.field);
-    return;
-  }
-
-  if (submitBtn) {
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Abriendo WhatsApp...';
-  }
-
   const fd = new FormData(checkoutForm);
   const clientName = fd.get('name')?.trim() || '';
   const clientPhone = fd.get('phone')?.trim() || '';
-  const method = fd.get('method') || 'recoger';
+  const method = fd.get('method') || 'domicilio';
   const payment = fd.get('payment') || '';
   const address = fd.get('address')?.trim() || '';
   const notes = fd.get('notes')?.trim() || '';
 
+
+  // 🔎 Validación de barrio obligatorio en domicilio
+if (method === 'domicilio') {
+  const addressLower = address.toLowerCase();
+  const hasBarrio = 
+    addressLower.includes('barrio') ||
+    addressLower.includes('barr.') ||
+    addressLower.includes('br.');
+
+  if (!hasBarrio) {
+    Swal.fire({
+      icon: 'warning',
+      title: 'Debes indicar el barrio',
+      text: 'Debes incluir la palabra Barrio en la direccion, Ejemplo: Calle 29 #55-80 Barrio Galan.',
+      confirmButtonColor: '#e91e63'
+    });
+    return;
+  }
+}
+
+
+
   let textParts = [];
 
   // Cabecera
-  textParts.push('🧾 *Nuevo Pedido - Vikingos Indira Barrancabermeja✅*');
+  textParts.push('🧾 *Nuevo Pedido - Vikingos Indira Bucaramanga✅*');
   textParts.push(`👤 Cliente: ${clientName}`);
   textParts.push(`📞 Teléfono: ${clientPhone}`);
   textParts.push(`🚚 Tipo: ${method}`);
@@ -1192,8 +898,9 @@ checkoutForm.addEventListener('submit', (e) => {
     // Calcular precio de extras individualmente
     const extras = item.extras || [];
     const extrasLines = extras.map(e => `   ➕ ${e.qty}x ${e.name} ($${numberWithCommas(e.price * e.qty)})`).join('\n');
+    const extrasSum = extras.reduce((sum, e) => sum + e.price * e.qty, 0);
 
-    const itemTotal = item.price * item.qty;
+    const itemTotal = (item.price + extrasSum) * item.qty;
     subtotal += itemTotal;
 
     // Mostrar solo precio del artículo base + extras detallados
@@ -1222,19 +929,33 @@ checkoutForm.addEventListener('submit', (e) => {
   // Construir URL para WhatsApp
   const bp = String(BUSINESS_PHONE || '').replace(/\D/g, '');
   if (!bp || bp.length < 8) {
-    if (submitBtn) {
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Confirmar pedido';
-    }
     alert('Configura BUSINESS_PHONE en app.js con el número del negocio.');
     return;
   }
 
   const msg = encodeURIComponent(textParts.join('\n'));
-  const waUrl = `https://api.whatsapp.com/send?phone=${bp}&text=${msg}`;
-  const fallbackUrl = `https://wa.me/${bp}?text=${msg}`;
+  const waUrl = `https://wa.me/${bp}?text=${msg}`;
 
-  openWhatsAppWithFallback(waUrl, fallbackUrl, submitBtn);
+
+// 📲 ABRIR WHATSAPP INMEDIATAMENTE (FUNCIONA EN CELULAR)
+window.location.href = waUrl;
+
+// 🧹 Vaciar carrito
+cart = [];
+persistCart();
+refreshCartUI();
+localStorage.removeItem('tb_cart');
+
+  resetClientForm();
+
+// ⏳ RECARGA SEGURA (clave)
+setTimeout(() => {
+  window.location.reload();
+}, 1500); // 1.5 segundos es perfecto
+
+// Cerrar modal checkout
+checkoutModal.classList.add('hidden');
+
 });
 
 
@@ -1255,16 +976,6 @@ function bindEvents() {
     if (btn.disabled) return;
     const id = btn.dataset.id;
     if (!id) return;
-    const product = products.find(p => p.id === id);
-    const status = readCachedAvailability();
-    if (!isProductAvailable(id, status)) {
-      btn.disabled = true;
-      btn.textContent = 'Agotado';
-      btn.classList.add('agotado-btn');
-      showSoldOutProductModal(product);
-      removeUnavailableCartItems(status, true);
-      return;
-    }
     openProductModal(id);
   });
 }
@@ -1286,7 +997,7 @@ menuBtn.addEventListener('click', () => {
   sideMenu.classList.add('show');
   sideMenu.style.opacity = 0;
   sideMenu.style.transform = 'translateX(-20px)'; // empieza desplazado
-  sideMenu.style.transition = 'opacity 0.14s ease, transform 0.14s ease';
+  sideMenu.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
 
   // Forzamos el repaint antes de animar
   requestAnimationFrame(() => {
@@ -1299,14 +1010,14 @@ menuBtn.addEventListener('click', () => {
 
 closeMenu.addEventListener('click', () => {
   sideMenu.classList.remove('show');
-  setTimeout(() => sideMenu.classList.add('hidden'), 140);
+  setTimeout(() => sideMenu.classList.add('hidden'), 350);
 });
 
 // Cerrar tocando fuera del panel
 sideMenu.addEventListener('click', (e) => {
   if (e.target === sideMenu) {
     sideMenu.classList.remove('show');
-    setTimeout(() => sideMenu.classList.add('hidden'), 140);
+    setTimeout(() => sideMenu.classList.add('hidden'), 350);
   }
 });
 
@@ -1342,11 +1053,11 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  paymentSelect?.addEventListener("change", () => {
+  paymentSelect.addEventListener("change", () => {
     transferInfo.classList.toggle("hidden", paymentSelect.value !== "transferencia");
   });
 
-  copyBtn?.addEventListener("click", () => {
+  copyBtn.addEventListener("click", () => {
     navigator.clipboard.writeText(accountNumber.textContent.trim())
       .then(() => {
         copyBtn.textContent = "¡Copiado!";
@@ -1450,12 +1161,9 @@ if (nextStep1) {
   nextStep1.addEventListener("click", () => {
     const name = form.name.value.trim();
     const phone = form.phone.value.trim();
-    const phoneDigits = phone.replace(/\D/g, '');
-    updateCheckoutFieldStates();
 
-    if (!name || phoneDigits.length !== 10) {
-      showCheckoutAlert("Datos incompletos", "Por favor completa tu nombre y un telefono de 10 digitos.");
-      focusCheckoutField(!name ? 'name' : 'phone');
+    if (!name || !phone) {
+      alert("Por favor completa tu nombre y teléfono.");
       return;
     }
 
@@ -1558,14 +1266,20 @@ function showCartHintToast() {
   // Evitar duplicados
   if (document.querySelector('.cart-hint-toast')) return;
 
-  const cartHeader = document.querySelector('.cart-header');
-  const cartTitle = cartHeader?.querySelector('h3');
-  if (!cartHeader || !cartTitle) return;
-
   const toast = document.createElement('div');
   toast.className = 'cart-hint-toast';
-  toast.textContent = 'Puedes cerrar y seguir agregando';
-  cartTitle.insertAdjacentElement('afterend', toast);
+  toast.textContent = 'Puedes cerrar y seguir Agregando';
+
+  document.body.appendChild(toast);
+
+  const closeBtn = document.getElementById('close-cart');
+  if (!closeBtn) return;
+
+  const rect = closeBtn.getBoundingClientRect();
+
+  // Posicionar junto a la X
+  toast.style.top = `${rect.top + window.scrollY - 6}px`;
+  toast.style.left = `${rect.left + window.scrollX - toast.offsetWidth - 12}px`;
 
   // Animación entrada
   requestAnimationFrame(() => toast.classList.add('show'));
@@ -1573,13 +1287,15 @@ function showCartHintToast() {
   // Auto cerrar
   setTimeout(() => {
     toast.classList.remove('show');
-    setTimeout(() => toast.remove(), 120);
-  }, 1800);
+    setTimeout(() => toast.remove(), 300);
+  }, 2500);
 }
 
 
 
 // ============Fin de codigo de Descarga QR=================
+
+
 
 
 
